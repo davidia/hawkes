@@ -1,13 +1,22 @@
 
 import Hawkes
 import Control.Monad.Random
+import Graphics.Gnuplot.Simple
+
+
+laste evt =
+	case (children evt) of
+		[] -> time evt
+		otherwise -> laste $! last $ children evt
 
 main :: IO ()
 main = do      
   let mu     = 2
       alpha  = 8
       beta   = 9
-      events = evalRand (simulate mu alpha beta 100)  (mkStdGen 9) 
-      ts     = merge 0 events
-  --(xOpt, fOpt, res) <- estimate ts 4 3 12
-  print $ length ts
+      event = evalRand (simulate mu alpha beta 10000)  (mkStdGen 9) 
+      ts     = flatten event
+
+  (xOpt, fOpt, res) <- estimate ts 4 3 12
+  --plotList [] ts
+  print $ length xOpt

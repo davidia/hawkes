@@ -1,6 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 
-module Hawkes  (simulate,merge,logLikelihood,estimate) where
+module Hawkes  (simulate,flatten,time,children,estimate) where
 
 import Control.Monad.Random
 import Data.List
@@ -10,12 +10,15 @@ import Nlopt
 -- Simulation
 --
 
-data Event = Event Double [Event]  deriving (Show)
+data Event = Event {
+  time     :: {-# UNPACK #-} !Double,
+  children :: ![Event]
+} deriving (Show)
 
--- collapse Event into arrival times
-merge :: Double -> Event -> [Double]
-merge acc (Event t c)  = sort $ acc' : (foldl (\a b-> a ++ merge acc' b) [] c )
-  where acc' = acc + t
+-- flatten Event into arrival times
+flatten :: Event -> [Double]
+flatten t = sort $ squish 0 t []
+  where squish t (Event x ts) xs = (t + x) : foldr (squish (t + x)) xs ts
         
 -- simulate the hawkes process exponential intensity:
 -- 
@@ -25,20 +28,20 @@ merge acc (Event t c)  = sort $ acc' : (foldl (\a b-> a ++ merge acc' b) [] c )
 --
 simulate :: (RandomGen g) => Double -> Double -> Double -> Int -> Rand g Event
 simulate mu alpha beta n = do
-  waits <- sequence (replicate n $ wait mu)  
+  waits <- sequence (replicate n $! wait mu)  
   let mothers = scanl1 (\a b -> a+b)  waits
   evts <- mapM (build alpha beta) mothers
-  return $ Event 0 evts
+  return $! Event 0 evts
 
 -- sample poisson waiting time
 wait lamda = do
   r <- getRandom  
-  return $ -1/lamda*log(1-r)
+  return $! -1/lamda*log(1-r)
 
 -- contsruct an event given it's time and simulate it's children alpha beta parameters
 build a b t = do
   daughters <- spawn a b
-  return $ Event t daughters
+  return $! Event t daughters
 
 -- simulate daughter events
 spawn ::  (RandomGen g) =>  Double -> Double -> Rand g [Event]
@@ -46,45 +49,36 @@ spawn alpha beta = do
   count  <- spawnCount alpha beta
   ts     <- sequence (replicate count (spawnTime beta))
   e      <- mapM (build alpha beta) ts
-  return $ e
+  return $! e
 
 -- simulate daughter event appearance time
 spawnTime ::  (RandomGen g) => Double -> Rand g Double
 spawnTime beta = do
   r <- getRandom
-  return $ -log(1-r)/beta
+  return $! -log(1-r)/beta
 
 -- simulate number of daughter events
 spawnCount alpha beta = do 
   r <- getRandom
-  return $ spawnCount' alpha beta r 0 0
-spawnCount' alpha beta x acc n
-  | acc' > x  = n
-  | otherwise = spawnCount' alpha beta x acc' (n+1)
-  where acc'    = acc + p
-        l       = alpha/beta
-        p       = exp(-l) * l^^n / fromIntegral(fact(n))
+  return $! spawnCount' (alpha/beta) r 1
 
-
-sc2 alpha beta = do 
-  r <- getRandom
-  return $ sc2' (alpha/beta) r 1
-
-sc2' l r n
+spawnCount' l r n
   | (memoized_cdf l n) > r = n-1
-  | otherwise              = sc2' l r (n+1)
+  | otherwise              = spawnCount' l r (n+1)
 
 memoized_cdf l =
-   let cdf l 0 = 0       
-       cdf l n = (cdf l (n-1)) + exp(-l) * l^^n / fromIntegral(fact(n))
+   let cdf l (-1) = 0       
+       cdf l n  = (cdf l (n-1)) + exp(-l) * l^^n / fromIntegral(memoized_fact(n))
    in  (map (cdf l) [0 ..] !!)
 
-fact 0  = 1
-fact n  = n * fact (n-1)
+memoized_fact = 
+  let fact 0 = 1
+      fact n = n * memoized_fact (n-1)       
+   in  (map fact [0 ..] !!)
 
---
--- Estimation
---
+----
+---- Estimation
+----
 
 estimate ts mu alpha beta = do
   let logLikelihood' p = negate $ logLikelihood ts (p !! 0 + mu) (p !! 1 + alpha) (p !! 2 + beta)
@@ -119,7 +113,7 @@ opt lb n f = OptConfig {
   dim = n
 , xBounds   = (lb, replicate n 20)
 , xTolRel   = 0
-, xTolAbs   = replicate n 0.01
+, xTolAbs   = replicate n 0.1
 , fTolRel   = 0
 , fTolAbs   = 0
 , algorithm = NLOPT_LN_COBYLA
