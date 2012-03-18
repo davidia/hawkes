@@ -12,11 +12,12 @@ laste evt =
 main :: IO ()
 main = do      
   let mu     = 2
-      alpha  = 8
-      beta   = 9
-      event = evalRand (simulate mu alpha beta 10000)  (mkStdGen 9) 
+      alpha  = 9
+      beta   = 10
+      event = evalRand (simulate mu alpha beta 10000)  (mkStdGen 14) 
       ts     = flatten event
 
-  (xOpt, fOpt, res) <- estimate ts 4 3 12
+  --xOpt <- estimate ts 4 3 12
   --plotList [] ts
-  print $ length xOpt
+  print $ length ts
+  --print xOpt

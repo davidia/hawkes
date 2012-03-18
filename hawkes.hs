@@ -20,7 +20,7 @@ flatten :: Event -> [Double]
 flatten t = sort $ squish 0 t []
   where squish t (Event x ts) xs = (t + x) : foldr (squish (t + x)) xs ts
         
--- simulate the hawkes process exponential intensity:
+-- simulate the hawkes process with exponential intensity:
 -- 
 -- mu + sum [ alpha * exp(-beta(t-ti)) ]
 -- 
@@ -58,13 +58,12 @@ spawnTime beta = do
   return $! -log(1-r)/beta
 
 -- simulate number of daughter events
-spawnCount alpha beta = do 
+spawnCount a b = do 
+  let sc r n
+        | memoized_cdf (a/b) n > r = n
+        | otherwise                = sc r (n+1)        
   r <- getRandom
-  return $! spawnCount' (alpha/beta) r 1
-
-spawnCount' l r n
-  | (memoized_cdf l n) > r = n-1
-  | otherwise              = spawnCount' l r (n+1)
+  return $! sc r 0
 
 memoized_cdf l =
    let cdf l (-1) = 0       
@@ -82,8 +81,8 @@ memoized_fact =
 
 estimate ts mu alpha beta = do
   let logLikelihood' p = negate $ logLikelihood ts (p !! 0 + mu) (p !! 1 + alpha) (p !! 2 + beta)
-  x <- optimize (opt [-mu,-alpha,-beta] 3 logLikelihood')
-  return x
+  (c,f,r) <- optimize (opt [-mu,-alpha,-beta] 3 logLikelihood')  
+  return $ zipWith (+) [mu,alpha,beta] c
 
 --  Loglikelihood fucntion for exponential hawkes process
 --  ts - event times
@@ -113,7 +112,7 @@ opt lb n f = OptConfig {
   dim = n
 , xBounds   = (lb, replicate n 20)
 , xTolRel   = 0
-, xTolAbs   = replicate n 0.1
+, xTolAbs   = replicate n 0.01
 , fTolRel   = 0
 , fTolAbs   = 0
 , algorithm = NLOPT_LN_COBYLA
